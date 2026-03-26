@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WWD Analyzer — Wrong-Way Driving Inventory & Risk Assessment</title>
+  <meta name="description" content="Traffic analyst tool for wrong-way driving incident inventory, risk scoring, and countermeasure recommendations for Virginia roadways." />
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <!-- App CSS -->
+  <link rel="stylesheet" href="css/style.css?v=11" />
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ─── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-icon">⚠️</span>
+      <div class="logo-title">WWD Analyzer</div>
+      <div class="logo-sub">Virginia Traffic Safety</div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Visualization</div>
+
+      <button class="nav-item active" data-panel="panel-map">
+        <span class="nav-icon">🗺️</span>
+        <span>Incident Map</span>
+      </button>
+
+      <button class="nav-item" data-panel="panel-dashboard">
+        <span class="nav-icon">📊</span>
+        <span>Analytics</span>
+      </button>
+
+      <div class="nav-section-label">Data</div>
+
+      <button class="nav-item" data-panel="panel-inventory">
+        <span class="nav-icon">📋</span>
+        <span>Inventory</span>
+      </button>
+
+      <button class="nav-item" data-panel="panel-risk">
+        <span class="nav-icon">🚨</span>
+        <span>Risk Scores</span>
+        <span class="nav-badge" id="badge-critical">—</span>
+      </button>
+
+      <button class="nav-item" data-panel="panel-import">
+        <span class="nav-icon">📥</span>
+        <span>Import Data</span>
+      </button>
+
+      <div class="nav-section-label">ArcGIS Data</div>
+
+      <button class="nav-item" data-panel="panel-wwd-arcgis">
+        <span class="nav-icon">⚠️</span>
+        <span>Possible WWD Locations</span>
+        <span class="nav-badge" id="badge-wwd-arcgis">—</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      VDOT WWD Safety Program<br/>
+      <span id="last-updated">—</span>
+    </div>
+  </aside>
+
+  <!-- ─── Main Area ─────────────────────────────────────────────────────────── -->
+  <div class="main-area">
+
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="topbar-title">
+        Wrong-Way Driving <span>Inventory & Risk Assessment Tool</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" id="btn-add-incident">＋ Add Incident</button>
+        <button class="btn btn-ghost btn-toggle-heatmap" id="btn-toggle-heatmap">🔥 Heatmap</button>
+        <button class="btn btn-success" id="btn-export-csv">📥 Export CSV</button>
+      </div>
+    </div>
+
+    <!-- KPI Bar -->
+    <div class="kpi-bar">
+      <div class="kpi-card" id="kpi-total">
+        <div class="kpi-value">—</div>
+        <div class="kpi-label">📍 Total Incidents</div>
+      </div>
+      <div class="kpi-card" id="kpi-fatal">
+        <div class="kpi-value" style="color:#FF4757">—</div>
+        <div class="kpi-label">💀 Fatalities</div>
+      </div>
+      <div class="kpi-card" id="kpi-critical">
+        <div class="kpi-value" style="color:#FFA502">—</div>
+        <div class="kpi-label">🚨 Critical Locations</div>
+      </div>
+      <div class="kpi-card" id="kpi-avgrisk">
+        <div class="kpi-value" style="color:#5352ED">—</div>
+        <div class="kpi-label">📊 Avg Risk Score</div>
+      </div>
+      <div class="kpi-card" id="kpi-nocounter">
+        <div class="kpi-value" style="color:#FFDD59">—</div>
+        <div class="kpi-label">🛡️ Unprotected Sites</div>
+      </div>
+      <div class="kpi-card" id="kpi-night">
+        <div class="kpi-value" style="color:#A55EEA">—</div>
+        <div class="kpi-label">🌙 Night Incidents</div>
+      </div>
+    </div>
+
+    <!-- Panel Container -->
+    <div class="panel-container">
+
+      <!-- ── MAP Panel ──────────────────────────────────────────────────────── -->
+      <section class="panel active" id="panel-map">
+        <div class="map-toolbar">
+          <button class="btn btn-ghost" onclick="showPanel('panel-risk')">🚨 Risk Zones</button>
+          <button class="btn btn-ghost" onclick="showPanel('panel-inventory')">📋 View Table</button>
+          <button class="btn btn-ghost" onclick="MapModule.showWwdArcGisLayer(); MapModule.showMotorwayLinksLayer(); MapModule.showProhibitedLayer(); showPanel('panel-map')" title="Show all Possible WWD layers">⚠️ Possible WWD</button>
+          <button class="btn btn-ghost" id="btn-toggle-heatmap-map" onclick="document.getElementById('btn-toggle-heatmap').click()">🔥 Heatmap</button>
+        </div>
+        <div id="map-container"></div>
+      </section>
+
+      <!-- ── ANALYTICS / DASHBOARD Panel ───────────────────────────────────── -->
+      <section class="panel" id="panel-dashboard">
+        <div class="panel-header">
+          <h2>📊 Analytics Dashboard</h2>
+        </div>
+        <div class="charts-grid" style="overflow-y:auto;padding:16px;flex:1;">
+          <div class="chart-card"><canvas id="chart-severity"></canvas></div>
+          <div class="chart-card"><canvas id="chart-ramp"></canvas></div>
+          <div class="chart-card full-width"><canvas id="chart-municipality" style="max-height:300px"></canvas></div>
+          <div class="chart-card full-width"><canvas id="chart-trend"></canvas></div>
+          <div class="chart-card full-width"><canvas id="chart-risk-locations"></canvas></div>
+        </div>
+      </section>
+
+      <!-- ── INVENTORY Panel ───────────────────────────────────────────────── -->
+      <section class="panel" id="panel-inventory">
+        <div class="panel-header">
+          <h2>📋 Incident Inventory</h2>
+          <span class="record-count" id="record-count"></span>
+          <div style="margin-left:auto;display:flex;gap:8px;">
+            <button class="btn btn-primary" id="btn-add-inventory" onclick="openForm()">＋ Add</button>
+            <button class="btn btn-ghost" onclick="InventoryModule.exportCSV()">📥 CSV</button>
+          </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+          <label for="filter-severity" style="color:var(--text-muted);font-size:11px">SEVERITY</label>
+          <select id="filter-severity">
+            <option value="">All</option>
+            <option>Fatal</option>
+            <option>Injury</option>
+            <option>PDO</option>
+            <option>Near-Miss</option>
+          </select>
+
+          <label for="filter-ramp" style="color:var(--text-muted);font-size:11px">RAMP TYPE</label>
+          <select id="filter-ramp">
+            <option value="">All</option>
+            <option value="direct-connector">Direct Connector</option>
+            <option value="exit-ramp">Exit Ramp</option>
+            <option value="entrance-ramp">Entrance Ramp</option>
+            <option value="loop-ramp">Loop Ramp</option>
+          </select>
+
+          <label for="filter-alcohol" style="color:var(--text-muted);font-size:11px">ALCOHOL</label>
+          <select id="filter-alcohol">
+            <option value="">All</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+
+          <label for="filter-date-from" style="color:var(--text-muted);font-size:11px">FROM</label>
+          <input type="date" id="filter-date-from" />
+
+          <label for="filter-date-to" style="color:var(--text-muted);font-size:11px">TO</label>
+          <input type="date" id="filter-date-to" />
+
+          <button class="btn btn-primary" id="apply-filters">Apply</button>
+          <button class="btn btn-ghost" id="clear-filters">Clear</button>
+        </div>
+
+        <!-- Table -->
+        <div class="table-wrapper">
+          <table id="inventory-table">
+            <thead>
+              <tr>
+                <th data-sort="id">ID</th>
+                <th data-sort="dateTime">Date/Time</th>
+                <th data-sort="road">Location</th>
+                <th data-sort="severity">Severity</th>
+                <th data-sort="rampType">Ramp Type</th>
+                <th data-sort="vehiclesInvolved">Veh.</th>
+                <th data-sort="postedSpeedLimit">Speed</th>
+                <th data-sort="alcoholInvolved">Alcohol</th>
+                <th>Countermeasures</th>
+                <th data-sort="_riskScore">Risk</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="inventory-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── RISK SCORES Panel ──────────────────────────────────────────────── -->
+      <section class="panel" id="panel-risk" style="overflow:auto;padding:20px;">
+        <div class="risk-section-header">
+          <h2>🚨 Risk Location Scores</h2>
+          <span style="font-size:12px;color:var(--text-muted)">Sorted by composite risk score. Click "View Recs" for countermeasure details.</span>
+        </div>
+
+        <div class="table-wrapper" style="overflow:visible;padding:0;">
+          <table id="risk-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Location</th>
+                <th>Incidents</th>
+                <th>Fatals</th>
+                <th>Risk Score</th>
+                <th>Level</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="risk-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── Possible WWD Locations (ArcGIS) Panel ─────────────────────────────── -->
+      <section class="panel" id="panel-wwd-arcgis" style="overflow:auto;padding:20px;">
+        <div class="panel-header" style="flex-wrap:wrap;gap:12px;">
+          <h2>⚠️ Possible Wrong-Way Driving Locations</h2>
+          <span class="record-count" id="wwd-arcgis-count">—</span>
+          <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" id="btn-refresh-wwd-arcgis">🔄 Refresh Data</button>
+            <button class="btn btn-ghost" id="btn-show-wwd-on-map">🗺️ Show on Map</button>
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+          <b>Crash points:</b> Head-on collisions on divided highways at ramps (VDOT ArcGIS). <b>Ramps:</b> VDOT Functional Classification motorway ramps (ArcGIS). <b>Prohibited:</b> VDOT Prohibited Roadways No Ramp. <b>Intersections:</b> VDOT LRS Road Intersections (ArcGIS). Use map layer control to toggle each.
+        </p>
+        <div id="wwd-arcgis-loading" class="wwd-arcgis-loading">
+          <span class="loading-spinner"></span>
+          <span>Loading from ArcGIS...</span>
+        </div>
+        <div id="wwd-arcgis-error" class="wwd-arcgis-error" style="display:none;"></div>
+        <div class="table-wrapper" id="wwd-arcgis-table-wrap" style="display:none;">
+          <table id="wwd-arcgis-table">
+            <thead>
+              <tr>
+                <th>Road / Street</th>
+                <th>Municipality</th>
+                <th>Date</th>
+                <th>Severity</th>
+                <th>Fatal</th>
+                <th>Alcohol</th>
+                <th>Night</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="wwd-arcgis-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── IMPORT Panel ────────────────────────────────────────────────────── -->
+      <section class="panel" id="panel-import" style="overflow-y:auto;padding:24px;">
+        <div style="max-width:650px;">
+          <h2 style="margin-bottom:6px;">📥 Import Incident Data</h2>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;">
+            Drag and drop a CSV file below, or click to browse. The CSV should include columns:
+            <code style="background:var(--bg-elevated);padding:1px 4px;border-radius:3px;font-size:11px;">id, dateTime, road, routeNumber, municipality, lat, lng, rampType, travelDirection, severity, vehiclesInvolved, postedSpeedLimit, lightingCondition, weatherCondition, alcoholInvolved, countermeasures, notes</code>
+          </p>
+
+          <div id="csv-dropzone">
+            <div style="font-size:36px;margin-bottom:8px;">📂</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px;">Drop CSV file here</div>
+            <div style="font-size:12px;">or click to browse your files</div>
+          </div>
+          <input type="file" id="csv-import-input" accept=".csv" style="display:none" />
+
+          <div style="margin-top:24px;">
+            <h3 style="font-size:14px;font-weight:700;margin-bottom:8px;">📥 Export Template</h3>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Download a blank CSV template with the correct column headers.</p>
+            <button class="btn btn-ghost" onclick="downloadTemplate()">⬇️ Download Blank Template</button>
+          </div>
+
+          <div style="margin-top:24px;padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius)">
+            <h3 style="font-size:13px;font-weight:700;margin-bottom:8px;">💡 Import Tips</h3>
+            <ul style="font-size:12px;color:var(--text-secondary);line-height:1.8;padding-left:16px;">
+              <li>Use <b>YYYY-MM-DDTHH:MM:00</b> format for dateTime</li>
+              <li>Severity must be: <b>Fatal, Injury, PDO, or Near-Miss</b></li>
+              <li>rampType: <b>direct-connector, exit-ramp, entrance-ramp, loop-ramp</b></li>
+              <li>alcoholInvolved: <b>Yes or No</b></li>
+              <li>Separate multiple countermeasures with <b>|</b> (pipe)</li>
+              <li>Lat/Lng must be in decimal degrees (e.g., 38.7551)</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- end panel-container -->
+  </div><!-- end main-area -->
+</div><!-- end app-shell -->
+
+<!-- ─── Add / Edit Incident Slide-In Form ─────────────────────────────────── -->
+<div id="panel-form" class="slide-form">
+  <div class="form-header">
+    <h3 id="form-title">Add New Incident</h3>
+    <button class="btn btn-ghost" id="cancel-form" style="margin-left:auto">✕ Cancel</button>
+  </div>
+  <div class="form-body">
+    <form id="incident-form">
+
+      <div class="form-row">
+        <label>Incident ID (auto-generated for new)</label>
+        <input id="f-id" type="text" placeholder="Auto" readonly style="color:var(--text-muted)" />
+      </div>
+
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Road Name *</label>
+          <input id="f-road" type="text" placeholder="e.g. I-95 NB" required />
+        </div>
+        <div class="form-row">
+          <label>Route Number</label>
+          <input id="f-route" type="text" placeholder="e.g. I-95" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Municipality / Jurisdiction *</label>
+        <select id="f-municipality" required></select>
+      </div>
+
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Latitude <small>(click map)</small></label>
+          <input id="f-lat" type="number" step="0.000001" placeholder="38.xxxx" />
+        </div>
+        <div class="form-row">
+          <label>Longitude <small>(click map)</small></label>
+          <input id="f-lng" type="number" step="0.000001" placeholder="-77.xxxx" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Date &amp; Time *</label>
+        <input id="f-datetime" type="datetime-local" required />
+      </div>
+
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Ramp Type *</label>
+          <select id="f-ramp" required>
+            <option value="">Select…</option>
+            <option value="direct-connector">Direct Connector</option>
+            <option value="exit-ramp">Exit Ramp</option>
+            <option value="entrance-ramp">Entrance Ramp</option>
+            <option value="loop-ramp">Loop Ramp</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Travel Direction</label>
+          <select id="f-direction">
+            <option value="NB">NB (Northbound)</option>
+            <option value="SB">SB (Southbound)</option>
+            <option value="EB">EB (Eastbound)</option>
+            <option value="WB">WB (Westbound)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Crash Severity *</label>
+          <select id="f-severity" required>
+            <option value="">Select…</option>
+            <option>Fatal</option>
+            <option>Injury</option>
+            <option>PDO</option>
+            <option>Near-Miss</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Vehicles Involved</label>
+          <input id="f-vehicles" type="number" min="1" value="1" />
+        </div>
+      </div>
+
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Posted Speed Limit (mph)</label>
+          <input id="f-speedlimit" type="number" step="5" min="25" max="80" placeholder="65" />
+        </div>
+        <div class="form-row">
+          <label>Lighting Condition</label>
+          <select id="f-lighting">
+            <option>Dark - Not Lighted</option>
+            <option>Dark - Lighted</option>
+            <option>Dawn</option>
+            <option>Dusk</option>
+            <option>Daylight</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Weather Condition</label>
+        <select id="f-weather">
+          <option>Clear</option>
+          <option>Rainy</option>
+          <option>Foggy</option>
+          <option>Snowy</option>
+          <option>Sleet/Freezing Rain</option>
+          <option>Windy</option>
+          <option>Unknown</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>Existing Countermeasures (hold Ctrl to select multiple)</label>
+        <select id="f-countermeasures" multiple style="height:110px;"></select>
+      </div>
+
+      <div class="form-row form-checkbox">
+        <input id="f-alcohol" type="checkbox" />
+        <label for="f-alcohol">🍺 Alcohol / Impairment Involved</label>
+      </div>
+
+      <div class="form-row">
+        <label>Notes / Narrative</label>
+        <textarea id="f-notes" placeholder="Describe the incident, contributing factors, etc."></textarea>
+      </div>
+
+      <div class="form-footer" style="padding:0;border:none;margin-top:4px;">
+        <button type="submit" class="btn btn-primary" style="flex:1">💾 Save Incident</button>
+        <button type="button" class="btn btn-danger" id="cancel-form2" onclick="closeForm()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ─── Recommendations Modal ──────────────────────────────────────────────── -->
+<div id="rec-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="rec-modal-title">Countermeasure Recommendations</h3>
+      <button class="btn btn-ghost" id="rec-modal-close" style="margin-left:auto">✕</button>
+    </div>
+    <div class="modal-body" id="rec-modal-body">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ─── Toast Container ────────────────────────────────────────────────────── -->
+<div id="toast-container"></div>
+
+<!-- ─── Scripts ────────────────────────────────────────────────────────────── -->
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<!-- Leaflet Heatmap plugin -->
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<!-- App Scripts (order matters) -->
+<script src="data/sample_data.js"></script>
+<script src="data/va-interchanges.js"></script>
+<script src="js/arcgis-wwd.js"></script>
+<script src="js/wwd-additional-layers.js?v=10"></script>
+<script src="js/risk.js"></script>
+<script src="js/map.js?v=18"></script>
+<script src="js/inventory.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/spatial-filter.js?v=4"></script>
+<script src="js/report-generator.js?v=2"></script>
+<script src="js/app.js?v=20"></script>
+
+<script>
+// ── Helper: Download blank CSV template ───────────────────────────────────
+function downloadTemplate() {
+  const headers = ['id','dateTime','road','routeNumber','municipality','lat','lng','rampType',
+    'travelDirection','severity','vehiclesInvolved','postedSpeedLimit','lightingCondition',
+    'weatherCondition','alcoholInvolved','countermeasures','notes'];
+  const example = ['WWD-001','2025-01-15T02:30:00','I-95 NB','I-95','Fairfax County','38.7551','-77.2286',
+    'direct-connector','SB','Fatal','2','65','Dark - Not Lighted','Clear','Yes','Enhanced Signage|Pavement Markings',
+    'Driver entered via NB on-ramp going SB'];
+  const csv = [headers.join(','), example.join(',')].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'WWD_Template.csv';
+  a.click();
+}
+
+// ── Update "last updated" ─────────────────────────────────────────────────
+document.getElementById('last-updated').textContent = new Date().toLocaleDateString('en-US', {
+  month:'short', day:'numeric', year:'numeric'
+});
+
+// ── Update critical badge ──────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    const critical = document.getElementById('kpi-critical');
+    if (critical) {
+      const val = critical.querySelector('.kpi-value').textContent;
+      const badge = document.getElementById('badge-critical');
+      if (badge) badge.textContent = val !== '—' ? val : '0';
+    }
+  }, 500);
+});
+</script>
+
+</body>
+</html>
